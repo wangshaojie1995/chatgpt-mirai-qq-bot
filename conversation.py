@@ -1,35 +1,37 @@
-import asyncio
 import contextlib
+import time
 from datetime import datetime
 from typing import List, Dict, Optional
 
 import httpx
-from EdgeGPT import ConversationStyle
+from EdgeGPT.EdgeGPT import ConversationStyle
 from graia.amnesia.message import MessageChain
 from graia.ariadne.message.element import Image as GraiaImage, Element
 from loguru import logger
 
-import constants
 from adapter.baidu.yiyan import YiyanAdapter
 from adapter.botservice import BotAdapter
 from adapter.chatgpt.api import ChatGPTAPIAdapter
 from adapter.chatgpt.web import ChatGPTWebAdapter
 from adapter.claude.slack import ClaudeInSlackAdapter
 from adapter.google.bard import BardAdapter
+from adapter.gpt4free.g4f_helper import parse as g4f_parse
+from adapter.gpt4free.gpt4free import Gpt4FreeAdapter
 from adapter.ms.bing import BingAdapter
-from drawing import DrawingAPI, SDWebUI as SDDrawing, OpenAI as OpenAIDrawing
 from adapter.quora.poe import PoeBot, PoeAdapter
 from adapter.thudm.chatglm_6b import ChatGLM6BAdapter
+from adapter.xunfei.xinghuo import XinghuoAdapter
+from constants import LlmName
 from constants import config
+from drawing import DrawingAPI, SDWebUI as SDDrawing, OpenAI as OpenAIDrawing
 from exceptions import PresetNotFoundException, BotTypeNotFoundException, NoAvailableBotException, \
     CommandRefusedException, DrawingFailedException
+from middlewares.draw_ratelimit import MiddlewareRatelimit
 from renderer import Renderer
 from renderer.merger import BufferedContentMerger, LengthContentMerger
 from renderer.renderer import MixedContentMessageChainRenderer, MarkdownImageRenderer, PlainTextRenderer
 from renderer.splitter import MultipleSegmentSplitter
-from middlewares.draw_ratelimit import MiddlewareRatelimit
 from utils import retry
-from constants import LlmName
 from utils.text_to_speech import TtsVoice, TtsVoiceManager
 
 handlers = {}
@@ -73,6 +75,8 @@ class ConversationContext:
 
         self.last_resp = ''
 
+        self.last_resp_time = -1
+
         self.switch_renderer()
 
         if config.text_to_speech.always:
@@ -104,6 +108,10 @@ class ConversationContext:
             self.adapter = ChatGLM6BAdapter(self.session_id)
         elif _type == LlmName.SlackClaude.value:
             self.adapter = ClaudeInSlackAdapter(self.session_id)
+        elif _type == LlmName.XunfeiXinghuo.value:
+            self.adapter = XinghuoAdapter(self.session_id)
+        elif g4f_parse(_type):
+            self.adapter = Gpt4FreeAdapter(self.session_id, g4f_parse(_type))
         else:
             raise BotTypeNotFoundException(_type)
         self.type = _type
@@ -144,10 +152,15 @@ class ConversationContext:
     async def reset(self):
         await self.adapter.on_reset()
         self.last_resp = ''
+        self.last_resp_time = -1
+        # 在重置会话时自动加载默认预设
+        async for value in self.load_preset('default'):
+            pass
         yield config.response.reset
 
     @retry((httpx.ConnectError, httpx.ConnectTimeout, TimeoutError))
     async def ask(self, prompt: str, chain: MessageChain = None, name: str = None):
+        await self.check_and_reset()
         # 检查是否为 画图指令
         for prefix in config.trigger.prefix_image:
             if prompt.startswith(prefix) and not isinstance(self.adapter, YiyanAdapter):
@@ -190,6 +203,7 @@ class ConversationContext:
                 else:
                     yield await self.renderer.render(item)
                 self.last_resp = item or ''
+                self.last_resp_time = int(time.time())
             yield await self.renderer.result()
 
     async def rollback(self):
@@ -224,7 +238,9 @@ class ConversationContext:
                                                                                   text.strip())
                         logger.debug(f"Set conversation voice to {self.conversation_voice.full_name}")
                         continue
-
+                    
+                    # Replace {date} in system prompt
+                    text = text.replace("{date}", datetime.now().strftime('%Y-%m-%d'))
                     async for item in self.adapter.preset_ask(role=role.lower().strip(), text=text.strip()):
                         yield item
         elif keyword != 'default':
@@ -234,6 +250,15 @@ class ConversationContext:
     def delete_message(self, respond_msg):
         # TODO: adapt to all platforms
         pass
+
+    async def check_and_reset(self):
+        timeout_seconds = config.system.auto_reset_timeout_seconds
+        current_time = time.time()
+        if timeout_seconds == -1 or self.last_resp_time == -1 or current_time - self.last_resp_time < timeout_seconds:
+            return
+        logger.debug(f"Reset conversation({self.session_id}) after {current_time - self.last_resp_time} seconds.")
+        async for _resp in self.reset():
+            logger.debug(_resp)
 
 
 class ConversationHandler:

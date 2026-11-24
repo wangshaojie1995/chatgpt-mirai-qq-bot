@@ -1,11 +1,13 @@
 from __future__ import annotations
-from typing import List, Union, Literal, Dict, Optional
-from pydantic import BaseModel, BaseConfig, Extra
-from charset_normalizer import from_bytes
-from loguru import logger
+
 import os
 import sys
+from typing import List, Union, Literal, Dict, Optional
+
 import toml
+from charset_normalizer import from_bytes
+from loguru import logger
+from pydantic import BaseModel, BaseConfig, Extra
 
 
 class Onebot(BaseModel):
@@ -56,6 +58,7 @@ class HttpService(BaseModel):
     debug: bool = False
     """是否开启debug，错误时展示日志"""
 
+
 class WecomBot(BaseModel):
     host: str = "0.0.0.0"
     """企业微信回调地址，需要能够被公网访问，0.0.0.0则不限制访问地址"""
@@ -73,15 +76,18 @@ class WecomBot(BaseModel):
     """企业微信应用 API 令牌 的 Token"""
     encoding_aes_key: str
     """企业微信应用 API 令牌 的 EncodingAESKey"""
-    
 
-class OpenAIGPT3Params(BaseModel):
+
+class OpenAIParams(BaseModel):
     temperature: float = 0.5
     max_tokens: int = 4000
     top_p: float = 1.0
     presence_penalty: float = 0.0
     frequency_penalty: float = 0.0
     min_tokens: int = 1000
+    compressed_session: bool = False
+    compressed_tokens: int = 1000
+    stream: bool = True
 
 
 class OpenAIAuths(BaseModel):
@@ -90,7 +96,7 @@ class OpenAIAuths(BaseModel):
     api_endpoint: Optional[str] = None
     """自定义 OpenAI API 的接入点"""
 
-    gpt3_params: OpenAIGPT3Params = OpenAIGPT3Params()
+    gpt_params: OpenAIParams = OpenAIParams()
 
     accounts: List[Union[OpenAIEmailAuth, OpenAISessionTokenAuth, OpenAIAccessTokenAuth, OpenAIAPIKey]] = []
 
@@ -199,7 +205,7 @@ class BingAuths(BaseModel):
     """Bing 的会话创建接入点"""
     accounts: List[BingCookiePath] = []
     """Bing 的账号列表"""
-    max_messages: int = 20
+    max_messages: int = 30
     """Bing 的最大消息数，仅展示用"""
 
 
@@ -219,9 +225,28 @@ class YiyanCookiePath(BaseModel):
     """可选的代理地址，留空则检测系统代理"""
 
 
+class XinghuoCookiePath(BaseModel):
+    ssoSessionId: str
+    """星火 Cookie 中的 ssoSessionId 字段"""
+    fd: Optional[str] = ""
+    """星火请求中的 fd 字段"""
+    GtToken: Optional[
+        str] = "R0VFAAYyNDAzOTU0YzM5Y2M0ZTRlNDY2MTE2MDA4ZGZlYjZjMGQzNGMyMGY0YjQ1NTA1NDg3OWQ0ZWJlOTk0NzQxNGI1MWUzM2IzZDUyZTEyMGM3MWYxNjlmNWY2YmYwMWMxNDI2YzIxOTlmZjMzYTI5YmY3YjQ1M2RjZGQwZWNjMDdiYjMzMmY4OTE2OTRhYTk1OWIyZWVlNzFjNmI5ZWFmY2MxNDFkNjk2MWYzYWQ3ZDAyYjZkM2U0YTllYWZlOTM0Njc4NmMyZmQ4NTRiYWViMTI2NjhlZmFhMWRiNmRmMDc5MzQxN2EyYzMzZDhiN2M4NzJjMzQ3YTYwNDFiMGZkZjkxN2Q2OTRlOWFiZWMwN2U0ZTg3Y2UwM2UxNDlmODBjMzA0MmE4NTAyNzhiNjU0MTU3ZjBlMmMzN2UxMTQ0MjA3ZWE0MDIzZTMyNDRiMjJmMjcwYjE5NGZiMWJhMmFlNGQ4YzkxMWNmZmQ0OGQzYzBlYmQxMTk1ZjE5MDJmMTVjNWUyMDI3ZmNmMDI0ODIxYWJiMWZhNzc3MTExOTBiZmZhMWRhYmRlYzVhYTkwMGRlMjU2YjFhNGQ4ZGYwYzQ0ZjI4MGJiNzcyNGIyOTlkYjU0ZGMyYjllY2U1NjNlYjQzZWE5MzhkMmQ3NTFjMTVkMGY0NDNkYjdhNzdlMmQ4NzM1NTQ3NDI0ZDBjNzRmMTA0NzY4NmI2M2UwZWRiMDM0ZjNhODc1NGZkYjgxMDBlNDA0MmZlZDYzZmFlYmYyNTExMTI5NTIyOTg0ZDMzN2UxYTBhN2NiZWZlZGMxOTVjOWQ2MGVhOTMyY2E5M2VhYmZkODI1YjBiMzU0ZDViYzUzMmM5YzI5NjA2ZWU3MmFmNGYwNGRkNTlhNDEzYzJiZmYyODllZjBkNWJlNWU5ZjZkZWVlMjk4MDUyMTU2OTQwNzE3ZDQ5M2NlM2E4YmIwN2YyZjE4MzgzZmEwNjQxNGZlYmFlNzdmN2QwNTZlYTQ3NDEwMmNlZjU1YmZhNjNjMDM2MmI5OTU2NjBkZjg4YzFjYzA2MmY0NjU2OTE0ZGIwMWE3ODQxNjA2YjdlZWE3ZDJjZTM4NjE5YTcwYjg0MmVkZTBmM2Y1MzI3ZGI2YmU5M2ZjYTNiMzg4OTJkOGQ3NWI4Y2M4YjQ3NjBkNDExZmQ3ZmFlNGIxY2YwMGE5ZDk2MmM2ZDYzMWE1YmRjNmYzMmU0Y2U5MDYwOGNiMDMzMTlkZGE2ZDlkMGU4OGUwMzUwMDkwZTQ5MGRhMmY5ODU1MGU4ZmQ1ODc3NmQ0Yjg5MDM1Y2FiNTg3MjMyMGMwOTJmOTUyODkwYmQ3YjIwYTMzODI5Y2MwY2VlZTE0MWY5N2FiN2IzYmJjNDg3MWM0M2E3ZTViYWNjZWZiZjg4MjM1ZDRiNWMzMjBjM2IxNGM2ZWE2NWVkZjc0OWI0ZDNlNzZjOWYyMTkwZDM0ZTVkYTZkNjM1NjFmZWNmMWYyODIxMTMyNjIyOGFjMWU0MTA2NjY1OWQ4Y2JlZTRmMjIwYzI2NjNmNzYxYzBhZGEyY2VkZjkyNDkzZWExNzFhN2NhZThiNTMxNDNmNzEzM2RhY2UyOWNmYjQ4ZTk5YzE2YjcyM2ZmZTJjZDk5MjU0NGM5OWNhOTFlMDRlMWNiNTQ5ZjU4MGQxY2I4YWU5MWU0MDlmZDZmYjhjNGYzYTRmODA2ZWFiZjRlMDI3OWJmOTM4NmQwN2I5MTBmYzlkYzNjMGM2ODIzYjg4OWFjNWZkZjBhYWNjYzNhYmU0MDRmMTg3Y2Q0MGNmMjcyNWFmY2VkYzAzYmVjZGY2MmMzNWRkNzQ5MGExYjQ1MDdlNTczNDI1OTliYTJhMjNmM2FmNDg1NGM3ODZkYzBiZWIzYTllMGEwYWUyMTllNmZhNzYyN2YyNTI5ZDc3YzQ3MGY1YzIxNzI1NzhhM2EwYzM3NzM0NTM4MTlhYjE3ODJiNmRmOGM1NTI2YjQzZjUzNTZlNDVhM2Q5MDc4N2IwZGNkZTdmYmYzM2ZkMWQ2NGY2NjdmOWYzNDIzZjJkMmU2NzgyMTY5ZWM3MTE1Y2E3MDdlYWRhOGJmNzI0OTJmMGM3Y2QxNjJjMDI4NmFjOThmNDhmOWEyYWQzZDAwYzg5YmViYzA3NTA4ZjYwYzE1OGVmYjk5ZjBkOGY4MzQ1ODI5Yzg4Yzc0YTA3OGQyZjU5NTFjNmQzNTc1N2QyNjI0NWVjNTk0Y2JkMzc2YmVhMGNiZmEzMWYwZTA5MGRhYzhlYzNlYjQ0ZGIxN2M4MWE5NWY4MTE4MDAwNDJkMjQ2MmMzMjk2ODU5Yjg3ZjRhZmI1MDYxM2MxY2FiYTZkZDI0ODdiZDQ3MmVmNzBjMzFkN2YwNjZmZTMxOThiYzFhOWFlZjIwZTQzY2FlNDBkMDkxZWEzMmNiYTBhNDM0YmQ2ZDU2NDQ3YTU4YTNjODZjYTk0NjQ3MGNiZjM4ZjM3ZjU2YTZkZmQ4MDY0OWEyZGU3MzllN2EyZWE3M2RlNDE5NDljNmI4ODU2YmE5ZTM4Njc2YmRhNzA1MWE5MjlmMWU1YTczZjEwYTg2ZjgwNDJjZDQxZTMwYjVjMTA1ODYzNzlhMGY3NmRlOWExODZiZmU2N2Y5NzZhOTY3MTg0ZjNkYmFhYWU0YjdmNmFlMjM5MTlkNDljNDNiODc4MzRjMjA0MzY4YThkOGEyYzRkNjc3MzhkMTU0NmFiNTVjMWE0YTQ0Y2M3MzE5OGM4Y2YzOTAxZGI0ZGY1MzFmNGY5NTI4MDE5MjZjN2I2MDg1YjQzODI0YmFiMTQ3NTIxZTYwNWQzYzhmZjljYjNmOTRlNzg3MDJiYzc1MzE4NTRhN2M3ZDE2OWQyMzcyYjUzMDBhNGQzNzhhYWNjOTk3ZDM1ZTZjODYwZGQwMWNlYTMwZjU1YTFlMjQxMTMxMTQwZjQwMWJmZGJkNWU3NzA4OWE5YzljNDIzY2E2ODk3OGE2ODMwYWEzYTlkZGJiZmMyYTE3NGZhOTc4NmI3ZTYyYmIzNTZlNjRiMzBiYzI4ZDMyYTVjMDMxYzgxZjZlOGEyMGMwNWFlNjJlYWM2ZWExNDY5OTFiZjk1Yzc4NzQzMjMwYTIyNzk1MWRlMzI4NjFjYjU5ZGQ3N2QxOWQ5MTMxNDgwYmY2ZTgyYTkwNzgwMTBlYjAzMzIzYjcxNGY0NzM5NDNmY2MwNTM3ODJmOTIwMGFkNzlmNzZiNjkxNDdmZGQwOTdhZTUwMTk1YjE4M2Q2YWM5NjVmN2NkNDNhMGI3MTEwOTNkZTM5NGM3OTYwNjNlNTBhMDAyNzNkOTE2MzQzODY2MzFkZThkMzViYTUxNmI4MTIyZWZjNzE5MTU0OTQ2NTIyYzc0YjhmNTY2OTMwZDM3YmIwZjJkM2Q4ODgyZGQwZTU0YTcyODM1NmYyZDk2ZWVlNzZiYmZlYjI1YTFjM2ZhNTg5OGY5OTM0YTc4NTBjYzRlNjY4NjE5YWMzOTg2MmE5NDhjMDVhMTc0MzE0MjIwOGFhMjk5OGY2ZmIwMmZlZWI2YTk0M2Q1NzcyN2JhZWU4ZmY5NGFmZjgzZGVjMTUyZmYxOWVkYmM1Y2RiZDkzYzBiNDc1OTEzMjFhYTY4MjI1MDA4ODhmYWJhMzAzNjdlZmRjYmJjNzhjYzE5MWI1MDViNTlmMjBhY2RiYTYzMzQyYzE1YTI2M2NiOGE1NDQ3NzQ4ODU3YWYxMzllMDJlMzY0ODlkNjRlNTRiMTc5YTgwOGRmMWU5YTk1ODY2YzE2YTYzM2EyZmUyYjA2MzM4OTI5YTc4MmRlMGFkZDgwZDZiYWU3Y2M1ZjljMWEzYzA5MGU4MTVlNjc2MGJjMzA0ZWU3ZmY1MDM5OGRiNDc0YTJkNWMzYWVhNTMxZjc0ZDU3NGNhZGNhZTIzZmZiZjcyY2FhNmU5YTNjNjFhYzNiMDJjNDdjYzQzZGJhYjA2NTgwNTkyZmE5YjMyNGMxMGJhMGRjNjgzZWIyYzRiNDg4NzFiMjk2YmIxNDBhMWUyZWRlOTE0NmY3MThkZTE4ZWU0M2QwZTk4NWY3NWQ1YWYyYjlkNjU5ODM5YzQwZWFiMzg2"
+    """星火请求中的 GtToken 字段"""
+    sid: Optional[str] = ""
+    """星火请求中的 sid 字段"""
+    proxy: Optional[str] = None
+    """可选的代理地址，留空则检测系统代理"""
+
+
 class YiyanAuths(BaseModel):
     accounts: List[YiyanCookiePath] = []
     """文心一言的账号列表"""
+
+
+class XinghuoAuths(BaseModel):
+    accounts: List[XinghuoCookiePath] = []
+    """讯飞星火大模型的账号列表"""
 
 
 class ChatGLMAPI(BaseModel):
@@ -236,6 +261,22 @@ class ChatGLMAPI(BaseModel):
 class ChatGLMAuths(BaseModel):
     accounts: List[ChatGLMAPI] = []
     """ChatGLM的账号列表"""
+
+
+class G4fModels(BaseModel):
+    provider: str
+    """ai提供方"""
+    model: str
+    """ai模型"""
+    alias: str
+    """模型缩写"""
+    description: str
+    """介绍"""
+
+
+class G4fAuths(BaseModel):
+    accounts: List[G4fModels] = []
+    """支持的模型"""
 
 
 class SlackAppAccessToken(BaseModel):
@@ -369,7 +410,7 @@ class Response(BaseModel):
     error_session_authenciate_failed: str = "身份验证失败！无法登录至 ChatGPT 服务器，请检查账号信息是否正确！\n{exc}"
     """发生网络错误时发送的消息，请注意可以插入 {exc} 作为异常占位符"""
 
-    error_request_too_many: str = "糟糕！当前收到的请求太多了，我需要一段时间冷静冷静。你可以选择“重置会话”，或者过一会儿再来找我！\n预计恢复时间：{exc}\n"
+    error_request_too_many: str = "糟糕！当前 ChatGPT 接入点收到的请求太多了，我需要一段时间冷静冷静。请过一会儿再来找我！\n预计恢复时间：{exc}(Code: 429)\n"
 
     error_request_concurrent_error: str = "当前有其他人正在和我进行聊天，请稍后再给我发消息吧！"
 
@@ -434,6 +475,9 @@ class System(BaseModel):
     accept_friend_request: bool = False
     """自动接收好友请求"""
 
+    auto_reset_timeout_seconds: int = 8 * 3600
+    """会话闲置多长时间后会重置， -1 不重置"""
+
 
 class BaiduCloud(BaseModel):
     check: bool = False
@@ -473,6 +517,12 @@ class Ratelimit(BaseModel):
 
 
 class SDWebUI(BaseModel):
+    class ScriptArg(BaseModel):
+        ad_model: str
+
+    class ScriptConfig(BaseModel):
+        args: List['SDWebUI.ScriptArg']
+    
     api_url: str
     """API 基地址，如：http://127.0.0.1:7890"""
     prompt_prefix: str = 'masterpiece, best quality, illustration, extremely detailed 8K wallpaper'
@@ -490,6 +540,7 @@ class SDWebUI(BaseModel):
     cfg_scale: float = 7.5
     restore_faces: bool = False
     authorization: str = ''
+    alwayson_scripts: Dict[str, 'SDWebUI.ScriptConfig'] = {}
     """登录api的账号:密码"""
 
     timeout: float = 10.0
@@ -497,6 +548,8 @@ class SDWebUI(BaseModel):
 
     class Config(BaseConfig):
         extra = Extra.allow
+SDWebUI.update_forward_refs()
+SDWebUI.ScriptConfig.update_forward_refs()
 
 
 class Config(BaseModel):
@@ -517,6 +570,8 @@ class Config(BaseModel):
     chatglm: ChatGLMAuths = ChatGLMAuths()
     poe: PoeAuths = PoeAuths()
     slack: SlackAuths = SlackAuths()
+    xinghuo: XinghuoAuths = XinghuoAuths()
+    gpt4free: G4fAuths = G4fAuths()
 
     # === Response Settings ===
     text_to_image: TextToImage = TextToImage()

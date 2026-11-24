@@ -41,7 +41,8 @@ class SDWebUI(DrawingAPI):
             'tiling': 'false',
             'negative_prompt': config.sdwebui.negative_prompt,
             'eta': 0,
-            'sampler_index': config.sdwebui.sampler_index
+            'sampler_index': config.sdwebui.sampler_index,
+            'alwayson_scripts': {}
         }
 
         for key, value in config.sdwebui.dict(exclude_none=True).items():
@@ -58,6 +59,10 @@ class SDWebUI(DrawingAPI):
         return [Image(base64=i) for i in r.get('images', [])]
 
     async def img_to_img(self, init_images: List[Image], prompt=''):
+        # 需要调用get_bytes方法，才能获取到base64字段内容
+        for x in init_images: await x.get_bytes()
+        # 消息链显示字符串中有“[图片]”字样，需要过滤
+        prompt = prompt.replace("[图片]", "")
         payload = {
             'init_images': [x.base64 for x in init_images],
             'enable_hr': 'false',

@@ -3,20 +3,20 @@ from io import BytesIO
 from typing import Generator, Union, List
 
 import aiohttp
+import re
 import asyncio
 from PIL import Image
 
 from constants import config
 from adapter.botservice import BotAdapter
-from EdgeGPT import Chatbot as EdgeChatbot, ConversationStyle, NotAllowedToAccess
+from EdgeGPT.EdgeGPT import Chatbot as EdgeChatbot, ConversationStyle, NotAllowedToAccess
 from contextlib import suppress
 
 from constants import botManager
 from drawing import DrawingAPI
 from exceptions import BotOperationNotSupportedException
 from loguru import logger
-import re
-from ImageGen import ImageGenAsync
+from EdgeGPT.ImageGen import ImageGenAsync
 from graia.ariadne.message.element import Image as GraiaImage
 
 image_pattern = r"!\[.*\]\((.*)\)"
@@ -62,7 +62,8 @@ class BingAdapter(BotAdapter, DrawingAPI):
         try:
             async for final, response in self.bot.ask_stream(prompt=prompt,
                                                              conversation_style=self.conversation_style,
-                                                             wss_link=config.bing.wss_link):
+                                                             wss_link=config.bing.wss_link,
+                                                             locale="zh-cn"):
                 if not response:
                     continue
 
@@ -94,7 +95,9 @@ class BingAdapter(BotAdapter, DrawingAPI):
                         return
                 else:
                     # 生成中的消息
-                    parsed_content = re.sub(r"\[\^\d+\^\]", "", response)
+                    parsed_content = re.sub(r"Searching the web for:(.*)\n", "", response)
+                    parsed_content = re.sub(r"```json(.*)```", "", parsed_content,flags=re.DOTALL)
+                    parsed_content = re.sub(r"Generating answers for you...", "", parsed_content)
                     if config.bing.show_references:
                         parsed_content = re.sub(r"\[(\d+)\]: ", r"\1: ", parsed_content)
                     else:
@@ -129,8 +132,8 @@ class BingAdapter(BotAdapter, DrawingAPI):
         logger.debug(f"[Bing Image] Prompt: {prompt}")
         try:
             async with ImageGenAsync(
-                    next((cookie['value'] for cookie in self.bot.cookies if cookie['name'] == '_U'), None),
-                    False
+                    all_cookies=self.bot.chat_hub.cookies,
+                    quiet=True
             ) as image_generator:
                 images = await image_generator.get_images(prompt)
 
@@ -156,4 +159,13 @@ class BingAdapter(BotAdapter, DrawingAPI):
                 return GraiaImage(data_bytes=await resp.read())
 
     async def preset_ask(self, role: str, text: str):
-        yield None  # Bing 不使用预设功能
+        if role.endswith('bot') or role in {'assistant', 'bing'}:
+            logger.debug(f"[预设] 响应：{text}")
+            yield text
+        else:
+            logger.debug(f"[预设] 发送：{text}")
+            item = None
+            async for item in self.ask(text): ...
+            if item:
+                logger.debug(f"[预设] Chatbot 回应：{item}")
+

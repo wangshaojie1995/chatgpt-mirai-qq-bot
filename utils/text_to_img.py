@@ -10,6 +10,7 @@ from tempfile import NamedTemporaryFile
 from typing import Optional
 
 import aiohttp
+import unicodedata
 import asyncio
 import imgkit
 from pydantic import BaseModel
@@ -20,7 +21,6 @@ from utils.zipimporter_patch import patch
 
 import markdown
 import qrcode
-import unicodedata
 from PIL import Image
 from PIL import ImageDraw, ImageFont
 from charset_normalizer import from_bytes
@@ -225,8 +225,10 @@ def text_to_image_raw(text, width=config.text_to_image.width, font_name=config.t
     lines = text.split('\n')
     line_lengths = [draw.textlength(line, font=font) for line in lines]
     text_width = max(line_lengths)
-    text_height = font.getsize(text)[1]
-    char_width = font.getsize('.')[0]
+    _, top, _, bottom = font.getbbox(text)
+    text_height = bottom - top
+    left, _, right, _ = font.getbbox('.')
+    char_width = right - left
 
     wrapper = TextWrapper(width=int(width / char_width), break_long_words=True)
     wrapped_text = [wrapper.wrap(i) for i in lines if i != '']
@@ -333,16 +335,19 @@ async def text_to_image(text):
         with StringIO(html) as input_file:
             ok = False
             try:
-                # 调用imgkit将html转为图片
-                ok = await asyncio.get_event_loop().run_in_executor(None, imgkit.from_file, input_file,
-                                                                    temp_jpg_filename, {
-                                                                        "enable-local-file-access": "",
-                                                                        "allow": asset_folder,
-                                                                        "width": config.text_to_image.width,  # 图片宽度
-                                                                    }, None, None, None, imgkit_config)
-                # 调用PIL将图片读取为 JPEG，RGB 格式
-                image = Image.open(temp_jpg_filename, formats=['PNG']).convert('RGB')
-                ok = True
+                if config.text_to_image.wkhtmltoimage:
+                    # 调用imgkit将html转为图片
+                    ok = await asyncio.get_event_loop().run_in_executor(None, imgkit.from_file, input_file,
+                                                                        temp_jpg_filename, {
+                                                                            "enable-local-file-access": "",
+                                                                            "allow": asset_folder,
+                                                                            "width": config.text_to_image.width,  # 图片宽度
+                                                                        }, None, None, None, imgkit_config)
+                    # 调用PIL将图片读取为 JPEG，RGB 格式
+                    image = Image.open(temp_jpg_filename, formats=['PNG']).convert('RGB')
+                    ok = True
+                else:
+                    ok = False
             except Exception as e:
                 logger.exception(e)
             finally:
@@ -356,6 +361,7 @@ async def text_to_image(text):
         image = await asyncio.get_event_loop().run_in_executor(None, text_to_image_raw, text)
 
     return image
+
 
 async def to_image(text) -> GraiaImage:
     img = await text_to_image(text=str(text))
